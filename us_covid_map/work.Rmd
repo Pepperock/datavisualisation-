@@ -1,0 +1,296 @@
+```{r}
+library(here)
+library(tidyverse)
+library(sf)
+library(tmap)
+devtools::install_github("UrbanInstitute/urbnmapr")
+library(urbnmapr)
+library(dplyr)
+```
+
+
+```{r}
+vac <- read_csv(here::here("data", "us_state_vaccinations.csv"))
+vac1 <- vac %>% filter(date == '2021-12-30')
+vac2 <- vac %>% filter(location == "California" | location == "Hawaii")
+vac2 <- vac2 %>% filter(date == "2021-12-08")
+vac1 <- vac1[vac1$location != "California",]
+vac1 <- vac1[vac1$location != "Hawaii",]
+vac_state <- rbind(vac1, vac2)
+vac_state <- vac_state %>% dplyr::select(., c("location", "people_fully_vaccinated_per_hundred"))
+vac_state <- vac_state[!is.na(vac_state$people_fully_vaccinated_per_hundred), ]
+state <- st_read(here::here("data", "cb_2018_us_state_5m","cb_2018_us_state_5m.shp"))
+state <- state %>% dplyr::select(., c("AFFGEOID", "NAME", "STUSPS"))
+state_vac_final <- left_join(state, vac_state, by = c("NAME"="location"))
+
+state_vac_final <- state_vac_final %>% filter(STUSPS != "HI")
+state_vac_final <- state_vac_final %>% filter(STUSPS != "AK")
+state_vac_final <- state_vac_final %>% filter(STUSPS != "PR")
+state_vac_final <- state_vac_final %>% filter(STUSPS != "VI")
+state_vac_final <- state_vac_final %>% filter(STUSPS != "GU")
+state_vac_final <- state_vac_final %>% filter(STUSPS != "MP")
+state_vac_final <- state_vac_final %>% filter(STUSPS != "AS")
+tmap_mode('plot')
+
+qtm(state_vac_final, fill = "people_fully_vaccinated_per_hundred")
+
+state2 <- get_urbn_map("states", sf = TRUE)
+county2 <- get_urbn_map("counties", sf = TRUE)
+
+```
+```{r}
+library(janitor)
+death <- read_csv(here::here("data", "county.csv")) %>% clean_names(.)
+death <- death %>% dplyr::select(., c("fips_county_code", "county_name", "deaths_involving_covid_19"))
+county <- st_read(here::here("data", "cb_2018_us_county_20m", "cb_2018_us_county_20m.shp"))
+county$GEOID <- as.numeric(county$GEOID)
+death$fips_county_code <- as.numeric(death$fips_county_code)
+death_county <- left_join(death, county, by = c("fips_county_code"="GEOID")) %>% st_as_sf(.)
+death_county2 <- death_county[!is.na(death_county$NAME),]
+death_county2 <- death_county2 %>% filter(state != "HI")
+death_county2 <- death_county2 %>% filter(state != "AK")
+death_county2 <- death_county2 %>% filter(state != "PR")
+death_county2 <- death_county2 %>% filter(state != "VI")
+death_county2 <- death_county2 %>% filter(state != "GU")
+death_county2 <- death_county2 %>% filter(state != "MP")
+death_county2 <- death_county2 %>% filter(state != "AS")
+qtm(death_county2, fill = "deaths_involving_covid_19")
+
+
+tmap_mode("plot")
+tmap_style('watercolor')
+tm_shape(state_vac_final)+
+  tm_polygons("people_fully_vaccinated_per_hundred", palette = "Blues")+
+  tm_shape(death_county2)+
+  tm_bubbles(col = "red",
+           size = "deaths_involving_covid_19",
+           alpha = 0.5,
+           border.col = "black",
+           border.lwd = 1)+
+  tm_legend(show=FALSE)
+  #tm_layout(bg.color = '#000223')
+```
+# data for delta vs omi
+```{r, fig.width= 8, fig.width = 6}
+df1 <- read_csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv")
+delta1 <- df1 %>% filter(date == "2021-01-01")
+delta2 <- df1 %>% filter(date == "2021-01-31")
+delta <- left_join(delta1, delta2, by = c("fips" = "fips"))
+delta <- delta[!is.na(delta$fips),]
+delta$death_change <- delta$deaths.y-delta$deaths.x
+delta$case_change <- delta$cases.y - delta$cases.x
+delta$death_change[delta$death_change < 0] <- 0
+delta$case_change[delta$case_change < 0] <- 0
+delta <- delta %>% dplyr::select(., c("fips", "state.x", "death_change", "case_change"))
+delta$fips <- as.numeric(delta$fips)
+
+omi1 <- df1 %>% filter(date == "2022-01-01")
+omi2 <- df1 %>% filter(date == "2022-01-31")
+omi <- left_join(omi1, omi2, by = c("fips" = "fips"))
+omi <- omi[!is.na(omi$fips),]
+omi$death_change <- omi$deaths.y-omi$deaths.x
+omi$case_change <- omi$cases.y - omi$cases.x
+omi$death_change[omi$death_change < 0] <- 0
+omi$case_change[omi$case_change < 0] <- 0
+omi <- omi %>% dplyr::select(., c("fips", "state.x", "death_change", "case_change"))
+omi$fips <- as.numeric(omi$fips)
+
+df_total = left_join(omi, delta, by = c("fips" = "fips"))
+df_total = dplyr::select(df_total, c("fips", "state.x.x", "death_change.x", "death_change.y", "case_change.x", "case_change.y"))
+names(df_total) <- c("fips", "state", "death_o","death_d", "case_o", "case_d")
+
+county2$county_fips <- as.numeric(county2$county_fips)
+spatialdf <- left_join(county,df_total, by = c("GEOID" = "fips"))
+variant_comparistion <- left_join(county2, df_total, by = c("county_fips" = "fips"))
+
+tmap_mode("plot")
+us <- tm_shape(state2)+
+  tm_polygons(border.col = "white", col = "black", border.lwd = 1.5)+
+  tm_shape(variant_comparistion)+
+  tm_bubbles(col = "red",
+           size = "case_o",
+           scale = 8,
+           border.lwd = 0,
+           alpha = 0.5)+
+  tm_shape(variant_comparistion)+
+  tm_bubbles(col = "blue",
+             scale = 3,
+             alpha = 0.5,
+             border.lwd = 0,
+           size = "case_d")+
+  tm_shape(state2)+
+  tm_text("state_name", col = "white", size = .8)+
+  tm_legend(show = F)+
+  tm_layout(bg.color = "black")
+
+us
+tmap_save(us, "test38.png", width = 10, height= 7)
+
+variant_comparistion$`Cases in Jan 2022(Omicron)` <- variant_comparistion$case_o
+variant_comparistion$`Cases in Jan 2021(Delta)` <- variant_comparistion$case_d
+le <- tm_shape(state2)+
+  tm_polygons(border.col = "black", col = "white")+
+  tm_shape(variant_comparistion)+
+  tm_bubbles(col = "red",
+           size = "Cases in Jan 2022(Omicron)",
+           scale = 8.5,
+           border.lwd = 0,
+           alpha = 0.5)+
+  tm_shape(variant_comparistion)+
+  tm_bubbles(col = "blue",
+             scale = 4.5,
+             alpha = 0.5,
+             border.lwd = 0.5,
+           size = "Cases in Jan 2021(Delta)")+
+  tm_shape(state2)+
+  tm_text("state_name", col = "white", size = .8)+
+  tm_layout(bg.color = "black", legend.text.color = "white", legend.title.color = "white" ,legend.bg.color = "black", legend.only = T, legend.text.size = 1.5, legend.title.size = 2)
+le
+library(ggplot2)
+library(gridExtra)
+grid.arrange(us, line, le, ncol = 2, top = "main")
+tmap_save(le, "legend.png")
+```
+
+```{r, fig.width= 4, fig.height=4}
+day <- df1 %>% group_by(date) %>% summarise(death = sum(deaths, na.rm = T), case = sum(cases, na.rm = T)) %>% 
+  mutate(mortality = death/case)
+library(dplyr)
+day <- day %>% mutate(day_death = death - lag(death)) %>% 
+  mutate(day_case = case - lag(case))
+
+jan22 <- day %>% filter(date < "2022-02-01") %>% filter(date >= "2022-01-01")
+jan22$day_mortality <- 100*jan22$day_death/jan22$day_case
+ggplot(aes(x = date, y = day_death), data = jan22)+
+  geom_line(color="#69b3a2") + 
+  xlab("January 2022") +
+  #theme_ipsum() +
+  theme(axis.text.x=element_text(angle=60, hjust=1, size = )) 
+
+
+line <- ggplot(aes(x = date, y = day_mortality), data = jan22)+
+  geom_line(color="red", size = 1.5) + 
+  xlab("January 2022") +
+  ylab("Daily Mortality Rate (%)")+
+  #geom_point()+
+  geom_smooth(se = F, color = "white")+
+  theme_classic()+
+  #theme_ipsum() +
+  theme(axis.text.x=element_text(angle=45, hjust=1))+
+  theme(panel.background = element_rect(fill = 'black', color = 'white'))+
+  theme(axis.title.x = element_text(colour = "white",size = rel(2.5)))+
+  theme(axis.text.x = element_text(colour = "white",size = rel(2.5)))+
+  theme(axis.text.y = element_text(colour = "white",size = rel(2.5)))+
+  theme(axis.title.y = element_text(colour = "white",size = rel(2.5)))+
+  theme(plot.background = element_rect(fill = 'black'))  
+ggsave(plot = line, "chart2.png")
+```
+
+
+```{r}
+library(mapdeck)
+set_token(Sys.getenv("MAPBOX"))
+crash_data = read.csv("https://git.io/geocompr-mapdeck")
+crash_data = na.omit(crash_data)
+ms = mapdeck_style("dark")
+mapdeck(style = ms, pitch = 45, location = c(0, 52), zoom = 4) %>%
+add_grid(data = crash_data, lat = "lat", lon = "lng", cell_size = 1000,
+         elevation_scale = 50, layer_id = "grid_layer",
+         colour_range = viridisLite::plasma(6))
+```
+```{r}
+library(geojsonio )
+county_json <- geojson_json(death_county2)
+geojson_write(county_json, file = "~/Downloads/county.geojson")
+```
+```{r}
+county_data <- read_csv(here::here("data", "countydata.csv"))
+first <- county_data %>% filter(date == "2022-01-02")
+last <- county_data %>% filter(date == "2022-01-31")
+diff <- left_join(first, last, by = c("fips" = "fips"))
+diff <- diff[!is.na(diff$fips),]
+diff$death_change <- diff$deaths.y-diff$deaths.x
+diff$case_change <- diff$cases.y - diff$cases.x
+diff$death_change[diff$death_change < 0] <- 0
+diff$case_change[diff$case_change < 0] <- 0
+diff2 <- diff %>% dplyr::select(., c("fips", "state.x", "death_change", "case_change"))
+diff2$fips <- as.numeric(diff$fips)
+diff_total <- left_join(county, diff2, by = c("GEOID" = "fips"))
+
+tmap_mode("view")
+tm_shape(state_vac_final)+
+  tm_polygons(alpha = 0, border.col = "black", fill = "grey")+
+  tm_shape(diff_total)+
+  tm_bubbles(col = "red",
+           size = "case_change",
+           scale = 10,
+           border.lwd = 0,
+           alpha = 0.5)+
+  tm_shape(diff_total)+
+  tm_bubbles(col = "white",
+             scale = 1,
+             alpha = 1,
+             border.lwd = 0,
+           size = "death_change")#+
+  #tm_legend(show=FALSE)
+```
+
+
+```{r}
+hospital <- read_csv(here::here("data", "hospitalisation.csv"))
+hospital <- hospital %>% dplyr::select(., c("state", "date", "total_adult_patients_hospitalized_confirmed_covid", "total_pediatric_patients_hospitalized_confirmed_covid",
+"percent_of_inpatients_with_covid_numerator", "percent_of_inpatients_with_covid_denominator"))
+names(hospital) <- c("state", "date", "adult", "child", "numerator", "denominator")
+hospital$total <- hospital$adult + hospital$child
+
+hospital_o <- hospital %>% filter(date <= "2022-01-31") %>% 
+  filter(date >= "2022-01-01") %>% group_by(state) %>% summarise(count_o = sum(total), count_no = sum(numerator), count_do = sum(denominator))
+
+hospital_d <- hospital %>% filter(date <= "2021-01-31") %>% 
+  filter(date >= "2021-01-01") %>% group_by(state) %>% summarise(count_d = sum(total), count_nd = sum(numerator), count_dd = sum(denominator))
+
+hospital_state <- left_join(hospital_d, hospital_o, by = c("state"= "state"))
+hospital_state <- hospital_state %>% 
+  mutate(inpatient_delta =  100 * count_nd/count_dd) %>% 
+  mutate(inpatient_omicron = 100 * count_no/count_do)
+hospital_state_s <- left_join(hospital_state, state, by = c("state" = "STUSPS")) %>% st_as_sf(.)
+
+tmap_mode("view")
+tm_shape(state_vac_final)+
+  tm_polygons(border.col = "white", col = "gray35")+
+  tm_shape(hospital_state_s)+
+  tm_bubbles(col = "red",
+           size = "inpatient_omicron",
+           scale = 1,
+           border.lwd = 0,
+           alpha = 0.5)+
+  tm_shape(hospital_state_s)+
+  tm_bubbles(col = "blue",
+             scale = 1,
+             alpha = 0.5,
+             border.lwd = 0,
+           size = "inpatient_dela")+
+  tm_shape(state_vac_final)+
+  tm_text("NAME", col = "white", size = .45)+
+  tm_legend(show = F)+
+  tm_layout(bg.color = "black")
+```
+
+```{r}
+statedata <- diff_total %>% group_by(state.x) %>% summarise(deaths = sum(death_change), cases = sum(case_change))
+statedata <- statedata[!is.na(statedata$deaths),]
+st2 <- statedata %>% st_drop_geometry()
+st1 <- state_vac_final %>% st_drop_geometry()
+regdata <- left_join(st1, st2, by = c("NAME" = "state.x"))
+regdata$mortality <- regdata$deaths/regdata$cases*100
+model1 <- regdata %>%  lm(mortality~ people_fully_vaccinated_per_hundred, data = .)
+summary(model1)
+
+qplot(mortality~ people_fully_vaccinated_per_hundred, data = regdata)
+```
+
+```{r}
+variant_comparistion %>% summarise(cased = sum(case_d, na.rm = T), caseo = sum(case_o, na.rm = T))
+variant_comparistion %>% summarise(deathd = sum(death_d, na.rm = T), deatho = sum(death_o, na.rm = T))
+```
+
