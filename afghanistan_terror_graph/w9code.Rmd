@@ -1,0 +1,79 @@
+```{r}
+library(here)
+library(tidyverse)
+library(dplyr)
+
+```
+
+```{r}
+injury <- read_csv(here("data", "injury.csv"))
+death <- read_csv(here("data", "fatality.csv"))
+incident <- read_csv(here("data", "incidents.csv"))
+```
+
+```{r}
+afg_injury <- injury %>% filter(Entity == "Afghanistan") 
+afg_death <- death %>% filter(Entity == "Afghanistan") 
+afg_incidents <- incident %>% filter(Entity == "Afghanistan")
+death_sub <- select(afg_death, -c("Code", "Entity"))
+names(death_sub) <- c("Year", "deaths")
+afg_terror <- left_join(afg_injury, death_sub, by = c("Year" = "Year"))
+names(afg_terror) <- c("Entity", "Code", "Year", "injuries", "deaths")
+afg_terror$total <- afg_terror$injuries + afg_terror$deaths
+afg_lon <- afg_terror %>% pivot_longer(., 4:5, names_to = "type", values_to = "count")
+
+names(afg_incidents) <- c("Entity", "Code", "Year", "Incidents")
+```
+
+
+```{r, fig.width= 10, fig.height= 12}
+ggplot(afg_lon[order(afg_lon$type, decreasing = T),], aes(fill = type, y = count, x = Year))+
+  geom_bar(position = "stack", stat = "identity")+
+  scale_y_reverse()
+
+ggplot(afg_lon, aes(fill = factor(type, levels=c("injuries","deaths")), y = count, x = Year))+
+  geom_bar(position = "stack", stat = "identity")+
+  ylim(0,13500)+
+  scale_fill_manual("legend", values = c("injuries" = "red", "deaths" = "darkred"))+
+  theme_classic()+
+  geom_col(width = 1)+
+  scale_x_continuous(position = "top", expand = c(0,0)) + 
+  scale_y_reverse(limits = c(13500, 0), position = "right", expand = c(0, 0))+
+  theme(panel.grid = element_blank())+
+  theme(axis.text.x = element_text(size = rel(3), face = "bold"))+
+  theme(axis.text.y = element_text(size = rel(3), face = "bold"))+
+  theme(axis.line.x.top = )
+  
+
+ggsave(m1, "pp1.png")
+```
+
+```{r, fig.width= 8, fig.height=8}
+
+list1 = c(1:32)
+ggplot(afg_incidents, aes(x=as.factor(Year), y=Incidents)) +      
+
+  geom_bar(stat="identity", fill="Black") +
+  ylim(-800,2400) +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = unit(rep(-1,4), "cm")      # Adjust the margin to make in sort labels are not truncated!
+  ) +
+  coord_polar(start = 0)+
+  geom_text(data = afg_incidents, aes(x= list1, y= Incidents + 80, label= Incidents), color="red", fontface="bold",alpha=0.8, size = 4.7 )+ 
+  geom_text(data = afg_incidents, aes(x= list1, y= Incidents + 250, label=Year), color="black", fontface="bold",alpha=0.8, size = 4.7 ) 
+```
+```{r}
+nation <- read_csv(here("data", "terror.csv"))
+names(nation) <- c("Entity", "Code", "year", "death")
+
+nation2 <- nation[!is.na(nation$Code),]
+nation2 <- nation2 %>% filter(Code != 'OWID_WRL')
+
+world2019 <- nation2 %>% filter(year == )
+write.csv(world2019, "world2019.csv")
+```
+
